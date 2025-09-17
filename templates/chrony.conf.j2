@@ -1,0 +1,18 @@
+driftfile /var/lib/chrony/drift
+
+makestep 1.0 3
+
+rtcsync
+
+server {{ ntp_upstream_server }} iburst
+{% for iface in interfaces | selectattr('zone', 'defined') | selectattr('zone', 'in', ['public', 'isolated']) | selectattr('address', 'defined') %}
+allow {{ iface.address | ansible.utils.ipaddr('network') }}/{{ iface.address | ansible.utils.ipaddr('prefix') }}
+{% endfor %}
+
+local stratum 10
+
+keyfile /etc/chrony.keys
+
+leapsectz right/UTC
+
+logdir /var/log/chrony

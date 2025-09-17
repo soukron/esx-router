@@ -1,0 +1,39 @@
+- block:
+  - name: Install dnsmasq
+    ansible.builtin.package:
+      name: dnsmasq
+      state: present
+
+  - name: Ensure dnsmasq configuration directory exists
+    ansible.builtin.file:
+      path: /etc/dnsmasq.d
+      state: directory
+      owner: root
+      group: root
+      mode: '0755'
+
+  - name: Deploy dnsmasq.conf for mode
+    ansible.builtin.template:
+      src: "dnsmasq.conf.{{ dnsmasq_mode }}.j2"
+      dest: /etc/dnsmasq.conf
+      owner: root
+      group: root
+      mode: '0644'
+    notify: Restart dnsmasq
+
+  - name: Deploy dnsmasq.d contents for authoritative mode
+    ansible.builtin.copy:
+      src: files/dnsmasq/dnsmasq.d/
+      dest: /etc/dnsmasq.d/
+      owner: root
+      group: root
+      mode: '0644'
+    notify: Restart dnsmasq
+    when: dnsmasq_mode == 'authoritative'
+
+  - name: Enable and start dnsmasq
+    ansible.builtin.systemd:
+      name: dnsmasq
+      enabled: yes
+      state: started
+  when: dnsmasq_mode is defined and setup_dnsmasq == true

@@ -1,0 +1,26 @@
+hostname: "esx1-router.gmbros.local"
+
+interfaces:
+- name: ens192
+  address: "88.99.217.246/26"
+  gateway: "88.99.217.193"
+  zone: internet
+- name: ens224
+  address: "10.0.0.1/24"
+  zone: public
+  routes:
+  - "10.12.0.0/16 10.0.0.2"
+  - "10.13.0.0/16 10.0.0.3"
+- name: ens256
+  address: "10.11.0.1/24"
+  zone: public
+- name: ens161
+  address: "10.11.128.1/24"
+  zone: isolated
+
+setup_dhcp_relay: false
+
+dnsmasq_mode: authoritative
+dnsmasq_upstream_servers:
+- 185.12.64.1
+- 185.12.64.2

@@ -1,0 +1,22 @@
+- block:
+  - name: Install DHCP relay
+    ansible.builtin.package:
+      name: dhcp-relay
+      state: present
+
+  - name: Create systemd unit for dhcrelay
+    ansible.builtin.template:
+      src: dhcrelay.service.j2
+      dest: /etc/systemd/system/dhcrelay.service
+      owner: root
+      group: root
+      mode: '0644'
+    notify: Restart dhcrelay
+
+  - name: Enable and start dhcrelay service
+    ansible.builtin.systemd:
+      name: dhcrelay.service
+      enabled: yes
+      state: started
+      daemon_reload: yes
+  when: setup_dhcp_relay == true

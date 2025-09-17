@@ -1,0 +1,21 @@
+- block:
+  - name: Install NTP server
+    ansible.builtin.package:
+      name: chrony
+      state: present
+
+  - name: Configure chrony.conf
+    ansible.builtin.template:
+      src: chrony.conf.j2
+      dest: /etc/chrony.conf
+      owner: root
+      group: root
+      mode: '0644'
+    notify: Restart chronyd
+
+  - name: Enable and start chronyd
+    ansible.builtin.systemd:
+      name: chronyd
+      enabled: yes
+      state: started
+  when: setup_ntp == true

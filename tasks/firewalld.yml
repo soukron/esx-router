@@ -1,0 +1,121 @@
+- block:
+  - name: Enable and start firewalld
+    ansible.builtin.systemd:
+      name: firewalld
+      enabled: yes
+      state: started
+
+  - name: Create custom firewalld zones if not present
+    ansible.builtin.command: firewall-cmd --permanent --new-zone={{ item }}
+    args:
+      creates: "/etc/firewalld/zones/{{ item }}.xml"
+    loop: "{{ interfaces | selectattr('zone', 'defined') | map(attribute='zone') | unique | list }}"
+    notify: Reload firewalld
+
+  - name: Assign interfaces to firewalld zones
+    ansible.posix.firewalld:
+      zone: "{{ item.zone }}"
+      interface: "{{ item.name }}"
+      permanent: yes
+      state: enabled
+    loop: "{{ interfaces | selectattr('zone', 'defined') }}"
+    notify: Reload firewalld
+
+  - name: Collect ZeroTier interfaces
+    ansible.builtin.set_fact:
+      zerotier_interfaces: "{{ ansible_facts.interfaces | select('match', '^zt') | list }}"
+
+  - name: Assign ZeroTier interfaces to public zone
+    ansible.posix.firewalld:
+      zone: public
+      interface: "{{ item }}"
+      permanent: yes
+      state: enabled
+    loop: "{{ zerotier_interfaces }}"
+    when: zerotier_interfaces | length > 0
+    notify: Reload firewalld
+
+  - name: Allow services in isolated zone
+    ansible.posix.firewalld:
+      zone: isolated
+      service: "{{ item }}"
+      permanent: yes
+      state: enabled
+    loop: "{{ isolated_services }}"
+    notify: Reload firewalld
+
+  - name: Set zone target to DROP for isolated zone
+    ansible.posix.firewalld:
+      zone: isolated
+      target: DROP
+      permanent: yes
+      state: enabled
+    notify: Reload firewalld
+
+  - name: Set zone target to ACCEPT for internal zone
+    ansible.posix.firewalld:
+      zone: public
+      target: ACCEPT
+      permanent: yes
+      state: enabled
+    notify: Reload firewalld
+
+  - name: Enable masquerading on internet zone
+    ansible.posix.firewalld:
+      zone: internet
+      masquerade: yes
+      permanent: yes
+      state: enabled
+    when: "'internet' in (interfaces | selectattr('zone', 'defined') | map(attribute='zone') | list)"
+    notify: Reload firewalld
+
+  - name: Create policy to block all traffic to isolated zone
+    ansible.builtin.command: firewall-cmd --permanent --new-policy=block-to-isolated
+    args:
+      creates: "/etc/firewalld/policies/block-to-isolated.xml"
+    notify: Reload firewalld
+
+  - name: Check policy ingress zone public
+    ansible.builtin.command: firewall-cmd --permanent --policy=block-to-isolated --query-ingress-zone=public
+    register: ingress_public_check
+    changed_when: false
+
+  - name: Add ingress zone public to policy
+    ansible.builtin.command: firewall-cmd --permanent --policy=block-to-isolated --add-ingress-zone=public
+    when: ingress_public_check.stdout != 'yes'
+    notify: Reload firewalld
+
+  - name: Check policy egress zone isolated
+    ansible.builtin.command: firewall-cmd --permanent --policy=block-to-isolated --query-egress-zone=isolated
+    register: egress_isolated_check
+    changed_when: false
+
+  - name: Add egress zone isolated to policy
+    ansible.builtin.command: firewall-cmd --permanent --policy=block-to-isolated --add-egress-zone=isolated
+    when: egress_isolated_check.stdout != 'yes'
+    notify: Reload firewalld
+
+  - name: Check policy target
+    ansible.builtin.command: firewall-cmd --permanent --policy=block-to-isolated --get-target
+    register: policy_target_check
+    changed_when: false
+
+  - name: Set policy target to DROP
+    ansible.builtin.command: firewall-cmd --permanent --policy=block-to-isolated --set-target=DROP
+    when: policy_target_check.stdout != 'DROP'
+    notify: Reload firewalld
+
+  - name: Check policy ingress zone internet
+    ansible.builtin.command: firewall-cmd --permanent --policy=block-to-isolated --query-ingress-zone=internet
+    register: ingress_internet_check
+    changed_when: false
+    when: "'internet' in (interfaces | selectattr('zone', 'defined') | map(attribute='zone') | list)"
+
+  - name: Add ingress zone internet to policy
+    ansible.builtin.command: firewall-cmd --permanent --policy=block-to-isolated --add-ingress-zone=internet
+    when:
+      - "'internet' in (interfaces | selectattr('zone', 'defined') | map(attribute='zone') | list)"
+      - ingress_internet_check.stdout != 'yes'
+    notify: Reload firewalld
+
+  when: setup_firewalld == true

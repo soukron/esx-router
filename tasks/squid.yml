@@ -1,0 +1,21 @@
+- block:
+  - name: Install Squid proxy server
+    ansible.builtin.package:
+      name: squid
+      state: present
+
+  - name: Configure squid.conf for proxy access
+    ansible.builtin.template:
+      src: squid.conf.j2
+      dest: /etc/squid/squid.conf
+      owner: root
+      group: root
+      mode: '0644'
+    notify: Restart squid
+
+  - name: Enable and start Squid proxy service
+    ansible.builtin.systemd:
+      name: squid
+      enabled: yes
+      state: started
+  when: setup_squid == true

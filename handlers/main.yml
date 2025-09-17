@@ -1,0 +1,33 @@
+- name: Restart chronyd
+  ansible.builtin.systemd:
+    name: chronyd
+    state: restarted
+
+- name: Restart dhcrelay
+  ansible.builtin.systemd:
+    name: dhcrelay.service
+    daemon_reload: yes
+    state: restarted
+
+- name: Restart dnsmasq
+  ansible.builtin.systemd:
+    name: dnsmasq
+    state: restarted
+
+- name: Restart squid
+  ansible.builtin.systemd:
+    name: squid
+    state: restarted
+
+- name: Reload sysctl
+  ansible.builtin.command: sysctl --system
+
+- name: Reload firewalld
+  ansible.builtin.command: firewall-cmd --reload
+
+- name: Reapply network connections
+  ansible.builtin.command: "nmcli device reapply {{ item }}"
+  loop: "{{ nmcli_changed_connections | default([]) }}"
+  register: nm_reapply_result
+  failed_when: nm_reapply_result.rc not in [0, 10]
+  changed_when: nm_reapply_result.rc == 0

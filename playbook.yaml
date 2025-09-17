@@ -1,0 +1,36 @@
+---
+- name: Configure VM router for ESX
+  hosts: all
+  become: true
+
+  tasks:
+  - ansible.builtin.import_tasks: tasks/users.yml
+    tags:
+    - users
+
+  - ansible.builtin.import_tasks: tasks/interfaces.yml
+    tags:
+    - interfaces
+
+  - ansible.builtin.import_tasks: tasks/firewalld.yml
+    tags:
+    - firewalld
+
+  - ansible.builtin.import_tasks: tasks/squid.yml
+    tags:
+    - squid
+
+  - ansible.builtin.import_tasks: tasks/ntp.yml
+    tags:
+    - ntp
+
+  - ansible.builtin.import_tasks: tasks/dnsmasq.yml
+    tags:
+    - dnsmasq
+
+  - ansible.builtin.import_tasks: tasks/dhcrelay.yml
+    tags:
+    - dhcrelay
+
+  handlers:
+  - ansible.builtin.import_tasks: handlers/main.yml

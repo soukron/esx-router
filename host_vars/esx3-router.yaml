@@ -1,0 +1,18 @@
+hostname: "esx3-router.gmbros.local"
+
+interfaces:
+- name: ens192
+  state: down
+- name: ens224
+  address: "10.0.0.3/24"
+  zone: public
+  gateway: "10.0.0.1"
+  routes:
+  - "10.11.0.0/16 10.0.0.1"
+  - "10.12.0.0/16 10.0.0.2"
+- name: ens256
+  address: "10.13.0.1/24"
+  zone: public
+- name: ens161
+  address: "10.13.128.1/24"
+  zone: isolated

@@ -1,0 +1,88 @@
+- block:
+  - name: Configure hostname
+    ansible.builtin.hostname:
+      name: "{{ hostname }}"
+
+  - name: Generate sysctl to enable ipv4 forwarding
+    ansible.builtin.copy:
+      dest: /etc/sysctl.d/99-ipv4-forwarding.conf
+      content: |
+        net.ipv4.ip_forward = 1
+      owner: root
+      group: root
+      mode: '0644'
+    notify: Reload sysctl
+
+  - name: Generate sysctl config to disable ipv6
+    ansible.builtin.copy:
+      dest: /etc/sysctl.d/99-ipv6.conf
+      content: |
+        net.ipv6.conf.all.disable_ipv6 = 1
+        net.ipv6.conf.default.disable_ipv6 = 1
+      owner: root
+      group: root
+      mode: '0644'
+    notify: Reload sysctl
+
+  - name: Generate sysctl config for rp_filter
+    ansible.builtin.copy:
+      dest: /etc/sysctl.d/99-rp-filter.conf
+      content: |
+        net.ipv4.conf.all.rp_filter = 2
+        net.ipv4.conf.default.rp_filter = 2
+        {% for iface in interfaces %}
+        net.ipv4.conf.{{ iface.name }}.rp_filter = 2
+        {% endfor %}
+      owner: root
+      group: root
+      mode: '0644'
+    notify: Reload sysctl
+
+  - name: Configure interfaces using NetworkManager
+    community.general.nmcli:
+      conn_name: "{{ item.name }}"
+      ifname: "{{ item.name }}"
+      type: ethernet
+      ip4: "{{ item.address }}"
+      gw4: "{{ item.gateway | default(omit) }}"
+      routes4: "{{ item.routes | default(omit) }}"
+      zone: "{{ item.zone | default(omit) }}"
+      state: present
+      conn_reload: true
+    loop: "{{ interfaces }}"
+    when: item.state | default('up') != 'down'
+    register: nmcli_config_result
+    notify: Reapply network connections
+
+  - name: Record changed network connections
+    ansible.builtin.set_fact:
+      nmcli_changed_connections: >-
+        {{ nmcli_config_result.results
+           | selectattr('changed')
+           | map(attribute='item.name')
+           | list }}
+    when: nmcli_config_result is defined
+
+  - name: Disable interfaces marked as down
+    ansible.builtin.command: >
+      nmcli connection modify {{ item.name }}
+      ipv4.addresses ""
+      ipv4.gateway ""
+      ipv4.method disabled
+      ipv6.method disabled
+    loop: "{{ interfaces }}"
+    when: item.state | default('up') == 'down' and
+          (hostvars[inventory_hostname]['ansible_' + item.name] is defined and
+           (hostvars[inventory_hostname]['ansible_' + item.name].ipv4.address | default('')) != '')
+
+  - name: Bring down interfaces marked as down
+    ansible.builtin.command: "nmcli connection down {{ item.name }}"
+    loop: "{{ interfaces }}"
+    when: item.state | default('up') == 'down' and
+          (hostvars[inventory_hostname]['ansible_' + item.name] is defined and
+           (hostvars[inventory_hostname]['ansible_' + item.name].ipv4.address | default('')) != '')
+    register: down_result
+    failed_when: down_result.rc not in [0, 10]
+    changed_when: down_result.rc == 0
+
+  when: setup_interfaces == true

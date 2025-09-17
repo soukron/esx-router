@@ -1,0 +1,26 @@
+# DNS cache/forwarder for routed and isolated networks
+# upstream DNS server
+{% for server in dnsmasq_upstream_servers %}
+server={{ server }}
+{% endfor %}
+
+# stop looking resolve.conf for changes
+# and forward the request to specified DNS
+no-resolv
+no-poll
+
+# stop reverse lookups for private ip to go to internet
+bogus-priv
+
+# stop request without domain 
+# unless specified in /etc/hosts or addn-hosts
+domain-needed
+
+# only listen in interfaces listed
+bind-interfaces
+
+# listen in public/isolated networks (no dhcp)
+{% for iface in interfaces | selectattr('zone', 'defined') | selectattr('zone', 'in', ['public', 'isolated']) | selectattr('address', 'defined') %}
+interface={{ iface.name }}
+no-dhcp-interface={{ iface.name }}
+{% endfor %}

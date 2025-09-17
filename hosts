@@ -1,0 +1,4 @@
+[all]
+esx1-router ansible_host=10.0.0.1 ansible_user=sgarcia
+esx2-router ansible_host=10.0.0.2 ansible_user=sgarcia
+esx3-router ansible_host=10.0.0.3 ansible_user=sgarcia

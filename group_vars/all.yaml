@@ -1,0 +1,24 @@
+setup_admin_user: true
+admin_user: sgarcia
+
+setup_squid: true
+
+setup_ntp: true
+ntp_upstream_server: hora.uv.es
+
+setup_interfaces: true
+
+setup_firewalld: true
+isolated_services:
+- dns
+- ntp
+- squid
+
+setup_dhcp_relay: true # false for esx1-router
+dhcp_relay_server: "10.0.0.1"
+
+setup_dnsmasq: true
+dnsmasq_mode: cache # authoritative for esx1-router
+dnsmasq_domain: gmbros.local
+dnsmasq_upstream_servers:
+- "10.0.0.1" 

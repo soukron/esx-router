@@ -1,0 +1,70 @@
+# DNS authoritative server for this domain
+# request to this domain only answered by local
+local=/{{ dnsmasq_domain }}/
+domain={{ dnsmasq_domain }}
+
+# upstream DNS server
+{% for server in dnsmasq_upstream_servers %}
+server={{ server }}
+{% endfor %}
+
+# stop looking resolve.conf for changes
+# and forward the request to specified DNS
+no-resolv
+no-poll
+
+# stop reverse lookups for private ip to go to internet
+bogus-priv
+
+# stop request without domain 
+# unless specified in /etc/hosts or addn-hosts
+domain-needed
+
+# only listen in interfaces listed
+bind-interfaces
+
+# listen in public networks
+{% for iface in interfaces | selectattr('zone', 'defined') | selectattr('zone', 'equalto', 'public') %}
+interface={{ iface.name }}
+{% endfor %}
+
+# listen in isolated network (no dhcp)
+{% for iface in interfaces | selectattr('zone', 'defined') | selectattr('zone', 'equalto', 'isolated') %}
+interface={{ iface.name }}
+no-dhcp-interface={{ iface.name }}
+{% endfor %}
+
+# listen also in zerotier interface for DNS (no dhcp)
+{% for zt_iface in ansible_facts.interfaces | select('match', '^zt') %}
+interface={{ zt_iface }}
+no-dhcp-interface={{ zt_iface }}
+{% endfor %}
+
+{% for host in groups['all'] | sort %}
+{% set iface = (hostvars[host].interfaces | selectattr('name', 'equalto', 'ens256') | first) %}
+{% if iface is defined and iface.address is defined %}
+{% set net = iface.address | ansible.utils.ipaddr('network') %}
+{% set netmask = iface.address | ansible.utils.ipaddr('netmask') %}
+{% set start_ip = net | regex_replace('\\.0$', '.100') %}
+{% set end_ip = net | regex_replace('\\.0$', '.200') %}
+{% set router_ip = iface.address | regex_replace('/\\d+$', '') %}
+{% if host == inventory_hostname %}
+{% set dhcp_id = 'ens256' %}
+{% set tag_prefix = 'ens256' %}
+{% else %}
+{% set tag = 'routed-' + (host | regex_replace('-router$', '')) %}
+{% set dhcp_id = 'set:' + tag %}
+{% set tag_prefix = 'tag:' + tag %}
+{% endif %}
+# {{ host }} routed network
+dhcp-range={{ dhcp_id }},{{ start_ip }},{{ end_ip }},{{ netmask }},30d
+dhcp-option={{ tag_prefix }},option:router,{{ router_ip }}
+dhcp-option={{ tag_prefix }},option:dns-server,{{ router_ip }}
+
+{% endif %}
+{% endfor %}
+
+# include other files
+conf-dir=/etc/dnsmasq.d/,*.conf
+conf-dir=/etc/dnsmasq.d/sgarcia,*.conf
+conf-dir=/etc/dnsmasq.d/jtovarro,*.conf

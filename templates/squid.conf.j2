@@ -1,0 +1,35 @@
+# Configuración de Squid para proxy explícito sin autenticación
+http_port 3128
+
+# Redes internas permitidas
+{% for iface in interfaces | selectattr('zone', 'defined') | selectattr('zone', 'in', ['public', 'isolated']) | selectattr('address', 'defined') %}
+acl allowed_internal src {{ iface.address | ansible.utils.ipaddr('network') }}/{{ iface.address | ansible.utils.ipaddr('prefix') }}
+{% endfor %}
+acl localhost src 127.0.0.1/32 ::1
+
+acl SSL_ports port 443
+acl Safe_ports port 80
+acl Safe_ports port 443
+acl Safe_ports port 1025-65535
+acl CONNECT method CONNECT
+
+http_access allow localhost manager
+http_access deny manager
+
+http_access deny !Safe_ports
+http_access deny CONNECT !SSL_ports
+
+http_access allow localhost
+
+# --- Ejemplo de configuración de acceso sin restricciones ---
+http_access allow allowed_internal
+# --- Fin del ejemplo ---
+
+# --- Ejemplo de configuración de lista blanca (whitelist) ---
+# acl allowed_domains dstdomain "/etc/squid/whitelist.txt"
+# http_access allow allowed_internal allowed_domains
+# --- Fin del ejemplo ---
+
+http_access deny all
+
+coredump_dir /var/spool/squid
