@@ -7,6 +7,7 @@ setup_ntp: true
 ntp_upstream_server: hora.uv.es
 
 setup_interfaces: true
+interfaces_force_cleanup: false
 
 setup_firewalld: true
 isolated_services:
@@ -28,3 +29,5 @@ setup_load_balancer: false
 clusters: []
 
 skip_package_install: false
+
+lb_cleanup_on_disable: true

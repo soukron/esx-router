@@ -1,0 +1,15 @@
+- name: Force base addresses on managed interfaces
+  ansible.builtin.command: >-
+    nmcli connection modify {{ item.name }}
+    ipv4.addresses "{{ item.address }}"
+  loop: "{{ interfaces }}"
+  when: item.address is defined
+  register: base_iface_update_results
+  changed_when: base_iface_update_results.rc == 0
+
+- name: Reapply interfaces after forced cleanup
+  ansible.builtin.command: "nmcli device reapply {{ item.name }}"
+  loop: "{{ interfaces }}"
+  register: base_iface_reapply_results
+  failed_when: base_iface_reapply_results.rc not in [0, 10]
+  changed_when: base_iface_reapply_results.rc == 0

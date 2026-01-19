@@ -15,6 +15,8 @@
   - ansible.builtin.import_tasks: tasks/clusters.yml
     tags:
     - clusters
+    - dnsmasq
+    - haproxy
 
   - ansible.builtin.import_tasks: tasks/firewalld.yml
     tags:

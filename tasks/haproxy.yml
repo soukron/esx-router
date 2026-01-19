@@ -1,23 +1,37 @@
 - name: Determine if load balancer should be managed here
   ansible.builtin.set_fact:
     load_balancer_enabled: >-
-      {{ setup_load_balancer | default(false)
-         or (clusters_expanded | default([])
-             | selectattr('lb', 'defined')
-             | selectattr('lb.managed', 'equalto', 'user')
-             | list
-             | length > 0) }}
+      {{ (clusters_expanded | default(clusters | default([]))
+          | selectattr('lb', 'defined')
+          | selectattr('lb.managed', 'equalto', 'user')
+          | list
+          | length > 0) }}
 
 - name: Initialize load balancer VIP list
   ansible.builtin.set_fact:
     load_balancer_vips: "{{ load_balancer_vips | default([]) }}"
 
 - block:
-  - name: Install haproxy
-    ansible.builtin.package:
+  - name: Stop and disable haproxy when not managing VIPs
+    ansible.builtin.systemd:
       name: haproxy
-      state: present
-    when: not skip_package_install | default(false)
+      enabled: no
+      state: stopped
+
+  - ansible.builtin.import_tasks: interface_cleanup.yml
+  when:
+  - not load_balancer_enabled | default(false)
+  - lb_cleanup_on_disable | default(true)
+
+- name: Install haproxy
+  ansible.builtin.package:
+    name: haproxy
+    state: present
+  when:
+  - (setup_load_balancer | default(false)) or (load_balancer_enabled | default(false))
+  - not skip_package_install | default(false)
+
+- block:
 
   - name: Build load balancer VIPs from clusters
     ansible.builtin.set_fact:
@@ -62,15 +76,7 @@
         {{ vips }}
     when: clusters_expanded is defined
 
-  - name: Build list of VIP IPs
-    ansible.builtin.set_fact:
-      load_balancer_vip_ips: >-
-        {{ load_balancer_vips
-           | map(attribute='vip')
-           | select('defined')
-           | map('regex_replace', '/\\d+$', '')
-           | list }}
-    when: load_balancer_vips | length > 0
+  - ansible.builtin.import_tasks: interface_cleanup.yml
 
   - name: Build load balancer interface map from VIP subnets
     ansible.builtin.set_fact:
@@ -88,8 +94,6 @@
         {% if vips | length > 0 -%}
         {% set _ = iface_map.append({
           'name': iface.name,
-          'base_address': iface.address,
-          'vip_cidrs': (vips | unique | list),
           'desired_addresses': ([iface.address] + (vips | unique | list))
         }) -%}
         {% endif -%}
@@ -99,7 +103,7 @@
 
   - name: Fail when VIPs do not match any interface subnet
     ansible.builtin.fail:
-      msg: "Could not map VIPs to any interface: {{ load_balancer_vip_ips | default([]) }}"
+      msg: "Could not map VIPs to any interface: {{ load_balancer_vips | map(attribute='vip') | list }}"
     when:
     - load_balancer_vips | length > 0
     - load_balancer_vip_interface_map | length == 0

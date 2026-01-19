@@ -54,6 +54,9 @@
     register: nmcli_config_result
     notify: Reapply network connections
 
+  - ansible.builtin.import_tasks: interface_cleanup.yml
+    when: interfaces_force_cleanup | default(false)
+
   - name: Record changed network connections
     ansible.builtin.set_fact:
       nmcli_changed_connections: >-
