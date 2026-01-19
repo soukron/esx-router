@@ -19,6 +19,11 @@
     name: squid
     state: restarted
 
+- name: Restart haproxy
+  ansible.builtin.systemd:
+    name: haproxy
+    state: restarted
+
 - name: Reload sysctl
   ansible.builtin.command: sysctl --system
 

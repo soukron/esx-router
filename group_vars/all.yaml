@@ -22,3 +22,5 @@ dnsmasq_mode: cache # authoritative for esx1-router
 dnsmasq_domain: gmbros.local
 dnsmasq_upstream_servers:
 - "10.0.0.1" 
+
+setup_load_balancer: false

@@ -1,0 +1,94 @@
+- block:
+  - name: Install haproxy
+    ansible.builtin.package:
+      name: haproxy
+      state: present
+
+  - name: Collect configured IPv4 addresses for load balancer interface
+    ansible.builtin.command: "nmcli -g ipv4.addresses connection show {{ load_balancer_interface }}"
+    register: lb_iface_addresses
+    changed_when: false
+    when: load_balancer_interface is defined
+
+  - name: Build load balancer VIP CIDRs
+    ansible.builtin.set_fact:
+      load_balancer_vip_cidrs: >-
+        {{ load_balancer_vips
+           | selectattr('vip', 'defined')
+           | map(attribute='vip')
+           | map('regex_replace', '^(\\d+\\.\\d+\\.\\d+\\.\\d+)$', '\\1/32')
+           | list }}
+    when: load_balancer_vips is defined
+
+  - name: Record existing interface addresses
+    ansible.builtin.set_fact:
+      lb_iface_address_list: >-
+        {{ lb_iface_addresses.stdout.split(',')
+           | map('trim')
+           | reject('equalto', '')
+           | list }}
+    when: lb_iface_addresses is defined
+
+  - name: Add load balancer VIPs to interface
+    ansible.builtin.command: "nmcli connection modify {{ load_balancer_interface }} +ipv4.addresses {{ item }}"
+    loop: "{{ load_balancer_vip_cidrs | default([]) }}"
+    when:
+    - load_balancer_interface is defined
+    - item not in lb_iface_address_list | default([])
+    register: lb_vip_add_result
+    changed_when: lb_vip_add_result.rc == 0
+
+  - name: Reapply load balancer interface
+    ansible.builtin.command: "nmcli device reapply {{ load_balancer_interface }}"
+    when: lb_vip_add_result is defined and
+          (lb_vip_add_result.results | selectattr('changed') | list | length > 0)
+    register: lb_reapply_result
+    failed_when: lb_reapply_result.rc not in [0, 10]
+    changed_when: lb_reapply_result.rc == 0
+
+  - name: Build load balancer TCP ports list
+    ansible.builtin.set_fact:
+      load_balancer_tcp_ports: "{{ load_balancer_vips | map(attribute='ports') | list | flatten | unique | sort }}"
+    when: load_balancer_vips is defined
+
+  - name: Allow load balancer ports in SELinux
+    community.general.seport:
+      ports: "{{ item }}"
+      proto: tcp
+      setype: http_port_t
+      state: present
+    loop: "{{ load_balancer_tcp_ports }}"
+    when:
+    - ansible_selinux is defined
+    - ansible_selinux.status == "enabled"
+    - load_balancer_tcp_ports is defined
+
+  - name: Deploy haproxy configuration
+    ansible.builtin.template:
+      src: haproxy.cfg.j2
+      dest: /etc/haproxy/haproxy.cfg
+      owner: root
+      group: root
+      mode: '0644'
+    notify: Restart haproxy
+
+  - name: Allow load balancer ports in public zone
+    ansible.posix.firewalld:
+      zone: public
+      port: "{{ item }}/tcp"
+      permanent: yes
+      state: enabled
+    loop: "{{ load_balancer_tcp_ports }}"
+    when:
+    - setup_firewalld | default(false)
+    - load_balancer_tcp_ports is defined
+    notify: Reload firewalld
+
+  - name: Enable and start haproxy
+    ansible.builtin.systemd:
+      name: haproxy
+      enabled: yes
+      state: started
+  when:
+  - setup_load_balancer | default(false)
+  - load_balancer_vips is defined

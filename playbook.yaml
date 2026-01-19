@@ -28,6 +28,10 @@
     tags:
     - dnsmasq
 
+  - ansible.builtin.import_tasks: tasks/haproxy.yml
+    tags:
+    - haproxy
+
   - ansible.builtin.import_tasks: tasks/dhcrelay.yml
     tags:
     - dhcrelay
