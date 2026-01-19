@@ -3,6 +3,7 @@
     ansible.builtin.package:
       name: squid
       state: present
+    when: not skip_package_install | default(false)
 
   - name: Configure squid.conf for proxy access
     ansible.builtin.template:

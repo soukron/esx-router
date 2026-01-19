@@ -24,3 +24,7 @@ dnsmasq_upstream_servers:
 - "10.0.0.1" 
 
 setup_load_balancer: false
+
+clusters: []
+
+skip_package_install: false

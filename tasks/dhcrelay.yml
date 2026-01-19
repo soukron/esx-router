@@ -3,6 +3,7 @@
     ansible.builtin.package:
       name: dhcp-relay
       state: present
+    when: not skip_package_install | default(false)
 
   - name: Create systemd unit for dhcrelay
     ansible.builtin.template:

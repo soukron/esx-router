@@ -3,6 +3,7 @@
     ansible.builtin.package:
       name: dnsmasq
       state: present
+    when: not skip_package_install | default(false)
 
   - name: Ensure dnsmasq configuration directory exists
     ansible.builtin.file:
@@ -30,6 +31,38 @@
       mode: '0644'
     notify: Restart dnsmasq
     when: dnsmasq_mode == 'authoritative'
+
+  - name: Build list of legacy cluster dnsmasq files
+    ansible.builtin.set_fact:
+      legacy_cluster_dnsmasq_files: >-
+        {{ clusters_expanded
+           | map(attribute='domain')
+           | map('regex_replace', '^', '/etc/dnsmasq.d/sgarcia/')
+           | map('regex_replace', '$', '.conf')
+           | list }}
+    when: clusters_expanded is defined
+
+  - name: Remove legacy cluster dnsmasq files
+    ansible.builtin.file:
+      path: "{{ item }}"
+      state: absent
+    loop: "{{ legacy_cluster_dnsmasq_files | default([]) }}"
+    notify: Restart dnsmasq
+    when:
+    - dnsmasq_mode == 'authoritative'
+    - legacy_cluster_dnsmasq_files is defined
+
+  - name: Deploy cluster dnsmasq entries
+    ansible.builtin.template:
+      src: dnsmasq.clusters.conf.j2
+      dest: /etc/dnsmasq.d/sgarcia/clusters.conf
+      owner: root
+      group: root
+      mode: '0644'
+    notify: Restart dnsmasq
+    when:
+    - dnsmasq_mode == 'authoritative'
+    - clusters_expanded is defined
 
   - name: Enable and start dnsmasq
     ansible.builtin.systemd:

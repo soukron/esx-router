@@ -12,6 +12,10 @@
     tags:
     - interfaces
 
+  - ansible.builtin.import_tasks: tasks/clusters.yml
+    tags:
+    - clusters
+
   - ansible.builtin.import_tasks: tasks/firewalld.yml
     tags:
     - firewalld

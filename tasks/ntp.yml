@@ -3,6 +3,7 @@
     ansible.builtin.package:
       name: chrony
       state: present
+    when: not skip_package_install | default(false)
 
   - name: Configure chrony.conf
     ansible.builtin.template:

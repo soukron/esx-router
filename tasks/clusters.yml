@@ -1,0 +1,32 @@
+- block:
+  - name: Expand cluster definitions
+    ansible.builtin.set_fact:
+      clusters_expanded: "{{ clusters_expanded | default([]) + [expanded_cluster] }}"
+    loop: "{{ clusters | default([]) }}"
+    vars:
+      cluster_base_domain: "{{ item.base_domain | default(dnsmasq_domain) }}"
+      cluster_domain: "{{ item.name }}.{{ cluster_base_domain }}"
+      node_config: "{{ item.nodes | default({}) }}"
+      node_ips: >-
+        {% set ips = [] -%}
+        {% if node_config.start_ip is defined and (node_config.count | default(0) | int) > 0 -%}
+        {% for idx in range(node_config.count | default(0) | int) -%}
+        {% set _ = ips.append(node_config.start_ip | ansible.utils.ipmath(idx)) -%}
+        {% endfor -%}
+        {% endif -%}
+        {{ ips }}
+      expanded_cluster:
+        name: "{{ item.name }}"
+        base_domain: "{{ cluster_base_domain }}"
+        domain: "{{ cluster_domain }}"
+        network: "{{ item.network | default(omit) }}"
+        node_name_padding: "{{ item.node_name_padding | default(2) }}"
+        dhcp_static: "{{ item.dhcp_static | default(false) }}"
+        dhcp_lease_time: "{{ item.dhcp_lease_time | default('3d') }}"
+        dhcp_mac_prefix: "{{ item.dhcp_mac_prefix | default('00:50:56') }}"
+        bootstrap_ip: "{{ item.bootstrap_ip | default(omit) }}"
+        nodes:
+          name_prefix: "{{ node_config.name_prefix | default('node') }}"
+          ips: "{{ node_ips }}"
+        lb: "{{ item.lb | default({}) }}"
+  when: clusters is defined

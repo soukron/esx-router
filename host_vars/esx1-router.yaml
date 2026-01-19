@@ -25,26 +25,19 @@ dnsmasq_upstream_servers:
 - 185.12.64.1
 - 185.12.64.2
 
-setup_load_balancer: true
-load_balancer_interface: "ens224"
-load_balancer_vips:
-- hostname: "api.ocp4.gmbros.local"
-  vip: "10.0.0.101"
-  ports:
-  - 6443
-  - 22623
-  backend_ips:
-  - 10.11.0.127
-  - 10.11.0.123
-  - 10.12.0.140
-  - 10.13.0.125
+setup_load_balancer: false
 
-- hostname: "apps.ocp4.gmbros.local"
-  vip: "10.0.0.100"
-  ports:
-  - 80
-  - 443
-  backend_ips:
-  - 10.11.0.123
-  - 10.12.0.140
-  - 10.13.0.125
+clusters:
+- name: ocp4
+  base_domain: gmbros.local
+  network: 10.11.0.0/24
+  bootstrap_ip: 10.11.0.99
+  dhcp_static: true
+  nodes:
+    count: 17
+    start_ip: 10.11.0.103
+    name_prefix: node
+  lb:
+    managed: user
+    api_vip: 10.11.0.101
+    ingress_vip: 10.11.0.100
