@@ -12,11 +12,15 @@
     load_balancer_vips: "{{ load_balancer_vips | default([]) }}"
 
 - block:
+  - name: Collect service facts
+    ansible.builtin.service_facts:
+
   - name: Stop and disable haproxy when not managing VIPs
     ansible.builtin.systemd:
       name: haproxy
       enabled: no
       state: stopped
+    when: "'haproxy.service' in ansible_facts.services"
 
   - ansible.builtin.import_tasks: interface_cleanup.yml
   when:

@@ -34,7 +34,7 @@ clusters:
   bootstrap_ip: 10.11.0.99
   dhcp_static: true
   nodes:
-    count: 17
+    count: 5
     start_ip: 10.11.0.103
     name_prefix: node
   lb:
