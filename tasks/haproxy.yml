@@ -1,42 +1,83 @@
-- name: Determine if load balancer should be managed here
+- name: Initialize load balancer facts
   ansible.builtin.set_fact:
-    load_balancer_enabled: >-
-      {{ (clusters_expanded | default(clusters | default([]))
-          | selectattr('lbManaged', 'defined')
-          | selectattr('lbManaged', 'equalto', 'user')
-          | list
-          | length > 0) }}
-
-- name: Initialize load balancer VIP list
-  ansible.builtin.set_fact:
+    load_balancer_vips_all: []
     load_balancer_vips: []
-
-- name: Initialize load balancer interface map
-  ansible.builtin.set_fact:
     load_balancer_vip_interface_map: []
 
-- block:
-  - name: Collect service facts
-    ansible.builtin.service_facts:
+- name: Build load balancer VIPs from clusters
+  ansible.builtin.set_fact:
+    load_balancer_vips_all: "{{ (load_balancer_vips_all | default([])) + cluster_generated_vips }}"
+  vars:
+    cluster_generated_vips: >-
+      {% set vips = [] -%}
+      {% for cluster in clusters_expanded | default([]) -%}
+      {% if cluster.lbManaged | default('') == 'user' -%}
+      {% set node_list = cluster.nodes.ips | default([]) -%}
+      {% set master_nodes = node_list[:3] -%}
+      {% set worker_nodes = node_list[3:] if (node_list | length) > 3 else [] -%}
+      {% if cluster.apiVIP is defined -%}
+      {% set api_backends = master_nodes + ([cluster.bootstrap_ip] if cluster.bootstrap_ip is defined else []) -%}
+      {% set _ = vips.append({
+        'hostname': 'api.' ~ cluster.domain,
+        'vip': cluster.apiVIP,
+        'ports': [6443, 22623],
+        'backend_ips': api_backends
+      }) -%}
+      {% if cluster.apiIntVIP is defined and cluster.apiIntVIP != cluster.apiVIP -%}
+      {% set _ = vips.append({
+        'hostname': 'api-int.' ~ cluster.domain,
+        'vip': cluster.apiIntVIP,
+        'ports': [6443, 22623],
+        'backend_ips': api_backends
+      }) -%}
+      {% endif -%}
+      {% endif -%}
+      {% if cluster.ingressVIP is defined -%}
+      {% set ingress_backends = (worker_nodes if (node_list | length) > 3 else master_nodes) -%}
+      {% set _ = vips.append({
+        'hostname': 'apps.' ~ cluster.domain,
+        'vip': cluster.ingressVIP,
+        'ports': [80, 443],
+        'backend_ips': ingress_backends,
+        'balance': 'source'
+      }) -%}
+      {% endif -%}
+      {% endif -%}
+      {% endfor -%}
+      {{ vips }}
+  when: clusters_expanded is defined
 
-  - name: Stop and disable haproxy when not managing VIPs
-    ansible.builtin.systemd:
-      name: haproxy
-      enabled: no
-      state: stopped
-    when: "'haproxy.service' in ansible_facts.services"
+- name: Filter load balancer VIPs to local interfaces
+  ansible.builtin.set_fact:
+    load_balancer_vips: >-
+      {% set local_vips = [] -%}
+      {% for vip in load_balancer_vips_all | default([]) -%}
+      {% set vip_ip = (vip.vip | regex_replace('/\\d+$', '')) -%}
+      {% set matched = false -%}
+      {% for iface in interfaces | default([]) -%}
+      {% if (not matched) and (iface.address is defined) and (vip_ip | ansible.utils.ipaddr(iface.address)) -%}
+      {% set _ = local_vips.append(vip) -%}
+      {% set matched = true -%}
+      {% endif -%}
+      {% endfor -%}
+      {% endfor -%}
+      {{ local_vips }}
 
-  - ansible.builtin.import_tasks: interface_cleanup.yml
-  when:
-  - not load_balancer_enabled | default(false)
-  - lb_cleanup_on_disable | default(true)
+- name: Determine if load balancer should be managed in this node
+  ansible.builtin.set_fact:
+    load_balancer_enabled: "{{ load_balancer_vips | default([]) | length > 0 }}"
+
+- name: Reset interface addresses
+  ansible.builtin.import_tasks: interface_cleanup.yml
+  vars:
+    interface_cleanup_interfaces: "{{ interfaces | default([]) }}"
+  when: interfaces is defined
 
 - name: Install haproxy
   ansible.builtin.package:
     name: haproxy
     state: present
   when:
-  - (setup_load_balancer | default(false)) or (load_balancer_enabled | default(false))
   - not skip_package_install | default(false)
 
 - name: Ensure haproxy config directory exists
@@ -46,8 +87,6 @@
     owner: root
     group: root
     mode: '0755'
-  when:
-  - (setup_load_balancer | default(false)) or (load_balancer_enabled | default(false))
 
 - name: Deploy haproxy base configuration
   ansible.builtin.template:
@@ -58,66 +97,25 @@
     mode: '0644'
   notify: Restart haproxy
 
-- name: Clear haproxy cluster configuration when disabled
-  ansible.builtin.copy:
-    content: ""
-    dest: /etc/haproxy/conf.d/clusters.cfg
-    owner: root
-    group: root
-    mode: '0644'
+- block:
+  - name: Clear haproxy cluster configuration when disabled
+    ansible.builtin.copy:
+      content: ""
+      dest: /etc/haproxy/conf.d/clusters.cfg
+      owner: root
+      group: root
+      mode: '0644'
+
+  - name: Stop haproxy service when disabled
+    ansible.builtin.systemd:
+      name: haproxy
+      state: stopped
+      enabled: no
+    ignore_errors: yes
   when:
-  - lb_cleanup_on_disable | default(true)
   - not load_balancer_enabled | default(false)
-  - (setup_load_balancer | default(false)) or (load_balancer_enabled | default(false))
 
 - block:
-
-  - name: Build load balancer VIPs from clusters
-    ansible.builtin.set_fact:
-      load_balancer_vips: "{{ (load_balancer_vips | default([])) + cluster_generated_vips }}"
-    vars:
-      cluster_generated_vips: >-
-        {% set vips = [] -%}
-        {% for cluster in clusters_expanded | default([]) -%}
-        {% if cluster.lbManaged | default('') == 'user' -%}
-        {% set node_list = cluster.nodes.ips | default([]) -%}
-        {% set master_nodes = node_list[:3] -%}
-        {% set worker_nodes = node_list[3:] if (node_list | length) > 3 else [] -%}
-        {% if cluster.apiVIP is defined -%}
-        {% set api_backends = master_nodes + ([cluster.bootstrap_ip] if cluster.bootstrap_ip is defined else []) -%}
-        {% set _ = vips.append({
-          'hostname': 'api.' ~ cluster.domain,
-          'vip': cluster.apiVIP,
-          'ports': [6443, 22623],
-          'backend_ips': api_backends
-        }) -%}
-        {% if cluster.apiIntVIP is defined and cluster.apiIntVIP != cluster.apiVIP -%}
-        {% set _ = vips.append({
-          'hostname': 'api-int.' ~ cluster.domain,
-          'vip': cluster.apiIntVIP,
-          'ports': [6443, 22623],
-          'backend_ips': api_backends
-        }) -%}
-        {% endif -%}
-        {% endif -%}
-        {% if cluster.ingressVIP is defined -%}
-        {% set ingress_backends = (worker_nodes if (node_list | length) > 3 else master_nodes) -%}
-        {% set _ = vips.append({
-          'hostname': 'apps.' ~ cluster.domain,
-          'vip': cluster.ingressVIP,
-          'ports': [80, 443],
-          'backend_ips': ingress_backends,
-          'balance': 'source'
-        }) -%}
-        {% endif -%}
-        {% endif -%}
-        {% endfor -%}
-        {{ vips }}
-    when: clusters_expanded is defined
-
-  - ansible.builtin.import_tasks: interface_cleanup.yml
-    when: load_balancer_enabled | default(false)
-
   - name: Build load balancer interface map from VIP subnets
     ansible.builtin.set_fact:
       load_balancer_vip_interface_map: >-
@@ -126,7 +124,7 @@
         {% set vips = [] -%}
         {% for vip in load_balancer_vips | default([]) -%}
         {% set vip_ip = (vip.vip | regex_replace('/\\d+$', '')) -%}
-        {% if vip_ip | ansible.utils.ipaddr(iface.address) -%}
+        {% if (iface.address is defined) and (vip_ip | ansible.utils.ipaddr(iface.address)) -%}
         {% set vip_cidr = vip.vip if (vip.vip | regex_search('/\\d+$')) else (vip_ip ~ '/32') -%}
         {% set _ = vips.append(vip_cidr) -%}
         {% endif -%}
@@ -139,14 +137,11 @@
         {% endif -%}
         {% endfor -%}
         {{ iface_map }}
-    when: load_balancer_vips | length > 0
 
   - name: Fail when VIPs do not match any interface subnet
     ansible.builtin.fail:
       msg: "Could not map VIPs to any interface: {{ load_balancer_vips | map(attribute='vip') | list }}"
-    when:
-    - load_balancer_vips | length > 0
-    - load_balancer_vip_interface_map | length == 0
+    when: load_balancer_vip_interface_map | length == 0
 
   - name: Collect configured IPv4 addresses for load balancer interface
     ansible.builtin.command: "nmcli -g ipv4.addresses connection show {{ item.name }}"
@@ -195,7 +190,6 @@
   - name: Build load balancer TCP ports list
     ansible.builtin.set_fact:
       load_balancer_tcp_ports: "{{ load_balancer_vips | map(attribute='ports') | list | flatten | unique | sort }}"
-    when: load_balancer_vips | length > 0
 
   - name: Allow load balancer ports in SELinux
     community.general.seport:
@@ -208,7 +202,6 @@
     - ansible_selinux is defined
     - ansible_selinux.status == "enabled"
     - load_balancer_tcp_ports is defined
-    - load_balancer_enabled | default(false)
 
   - name: Deploy haproxy cluster configuration
     ansible.builtin.template:
@@ -218,8 +211,6 @@
       group: root
       mode: '0644'
     notify: Restart haproxy
-    when:
-    - (setup_load_balancer | default(false)) or (load_balancer_enabled | default(false))
 
   - name: Allow load balancer ports in public zone
     ansible.posix.firewalld:
@@ -231,7 +222,6 @@
     when:
     - setup_firewalld | default(false)
     - load_balancer_tcp_ports is defined
-    - load_balancer_enabled | default(false)
     notify: Reload firewalld
 
   - name: Enable and start haproxy
@@ -239,4 +229,4 @@
       name: haproxy
       enabled: yes
       state: started
-    when: load_balancer_enabled | default(false)
+  when: load_balancer_enabled | default(false)

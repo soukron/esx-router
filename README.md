@@ -68,7 +68,7 @@ ansible-galaxy collection install -r collections/requirements.yml
 
 ## Cluster definitions
 
-Clusters are defined in `group_vars`/`host_vars` under `clusters`. The playbook derives DNS/DHCP
+Clusters are defined in `group_vars/clusters.yaml` under `clusters`. The playbook derives DNS/DHCP
 entries and (when `lbManaged: user`) HAProxy VIPs, and also writes the ABI inventory to
 `inventoryBaseDir/<cluster name>.yaml` when it's requested.
 

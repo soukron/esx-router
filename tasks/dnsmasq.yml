@@ -43,6 +43,7 @@
     when:
     - dnsmasq_mode == 'authoritative'
     - clusters_expanded is not defined or (clusters_expanded | length == 0)
+    - inventory_hostname == 'esx1-router'
 
   - name: Deploy cluster dnsmasq entries
     ansible.builtin.template:
@@ -56,6 +57,7 @@
     - dnsmasq_mode == 'authoritative'
     - clusters_expanded is defined
     - clusters_expanded | length > 0
+    - inventory_hostname == 'esx1-router'
 
   - name: Enable and start dnsmasq
     ansible.builtin.systemd:

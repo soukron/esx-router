@@ -1,0 +1,114 @@
+---
+
+clusters:
+# Example: simple dynamic
+- name: ocp4-simple-dynamic
+  type: simple
+  cluster_definition:
+    baseDomain: gmbros.local
+
+    controlPlaneReplicas: 3
+    computeReplicas: 0
+
+    machineNetwork:
+      cidr: 10.11.0.0/24
+      firstIP: 10.11.0.103
+
+    bootstrapIP: 10.11.0.99
+
+    lbManaged: cluster
+    ingressVIP: 10.11.0.100
+    apiVIP: 10.11.0.101
+
+#
+# Example: abi-vsphere static
+- name: ocp4-abi-vsphere-static
+  type: abi-vsphere
+  cluster_definition:
+    inventoryBaseDir: /home/sgarcia/src/ocp4-abi-vsphere-ansible/inventories
+    clusterBaseDir: ~/.local/ocp4/clusters
+
+    baseDomain: gmbros.local
+    controlPlaneReplicas: 3
+    computeReplicas: 2
+
+    networkType: OVNKubernetes
+    machineNetwork:
+      cidr: 10.13.0.0/24
+      gateway:
+        address: 10.13.0.1
+      dns-resolver:
+        config:
+          server:
+          - 10.13.0.1
+      firstIP: 10.13.0.103
+
+    ingressVIP: 10.13.0.100
+    apiVIP: 10.13.0.101
+    lbManaged: user
+
+    vms:
+      controlPlaneData:
+        cluster: zone3
+        cpu: 4
+        memory: 16384
+        disk:
+        - 100
+        networks:
+        - name: ens192
+          network: VM Routed Network
+        datastore: esx3-datastore
+      computeData:
+        cluster: zone3
+        cpu: 4
+        memory: 8192
+        disk:
+        - 100
+        networks:
+        - name: ens192
+          network: VM Routed Network
+        datastore: esx3-datastore
+
+
+#- name: ocp4-abi-vsphere-ha-dynamic
+#  type: abi-vsphere
+#  cluster_definition:
+#    inventoryBaseDir: /home/sgarcia/src/ocp4-abi-vsphere-ansible/inventories
+#    clusterBaseDir: ~/.local/ocp4/clusters
+#
+#    baseDomain: gmbros.local
+#
+#    controlPlaneReplicas: 3
+#    computeReplicas: 2
+#
+#    networkType: OVNKubernetes
+#    machineNetwork:
+#      cidr: 10.11.0.0/24
+#
+#    rendezvousIP: 10.11.0.103
+#
+#    lbManaged: cluster
+#    ingressVIP: 10.11.0.100
+#    apiVIP: 10.11.0.101
+#
+#    vms:
+#      controlPlaneData:
+#        cluster: zone1
+#        cpu: 4
+#        memory: 16384
+#        disk:
+#        - 100
+#        networks:
+#        - name: ens192
+#          network: VM Routed Network
+#        datastore: esx1-datastore
+#      computeData:
+#        cluster: zone1
+#        cpu: 4
+#        memory: 8192
+#        disk:
+#        - 100
+#        networks:
+#        - name: ens192
+#          network: VM Routed Network
+#        datastore: esx1-datastore

@@ -1,3 +1,7 @@
+- name: Load cluster definitions
+  ansible.builtin.include_vars:
+    file: "{{ playbook_dir }}/group_vars/clusters.yaml"
+
 - block:
   - name: Require bootstrap IP for simple static clusters
     ansible.builtin.assert:
