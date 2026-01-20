@@ -1,32 +1,101 @@
 - block:
+  - name: Require bootstrap IP for simple static clusters
+    ansible.builtin.assert:
+      that:
+        - cluster_def.bootstrapIP is defined
+      fail_msg: >-
+        Cluster {{ item.name }} requires bootstrapIP when type is simple
+        and machineNetwork.firstIP is set.
+    loop: "{{ clusters | default([]) }}"
+    vars:
+      cluster_type: "{{ item.type | default('simple') }}"
+      cluster_def: "{{ item.cluster_definition | default({}) }}"
+      machine_network: "{{ cluster_def.machineNetwork | default({}) }}"
+    when:
+      - cluster_type == 'simple'
+      - machine_network.firstIP is defined
+
+  - name: Require rendezvous IP for abi-vsphere dynamic clusters
+    ansible.builtin.assert:
+      that:
+        - cluster_def.rendezvousIP is defined
+      fail_msg: >-
+        Cluster {{ item.name }} requires rendezvousIP when type is abi-vsphere
+        and machineNetwork.firstIP is not set.
+    loop: "{{ clusters | default([]) }}"
+    vars:
+      cluster_type: "{{ item.type | default('simple') }}"
+      cluster_def: "{{ item.cluster_definition | default({}) }}"
+      machine_network: "{{ cluster_def.machineNetwork | default({}) }}"
+    when:
+      - cluster_type == 'abi-vsphere'
+      - machine_network.firstIP is not defined
+
   - name: Expand cluster definitions
     ansible.builtin.set_fact:
       clusters_expanded: "{{ clusters_expanded | default([]) + [expanded_cluster] }}"
     loop: "{{ clusters | default([]) }}"
     vars:
-      cluster_base_domain: "{{ item.base_domain | default(dnsmasq_domain) }}"
+      cluster_type: "{{ item.type | default('simple') }}"
+      cluster_def: "{{ item.cluster_definition | default({}) }}"
+      machine_network: "{{ cluster_def.machineNetwork | default({}) }}"
+      cluster_base_domain: "{{ cluster_def.baseDomain | default(dnsmasq_domain) }}"
       cluster_domain: "{{ item.name }}.{{ cluster_base_domain }}"
-      node_config: "{{ item.nodes | default({}) }}"
+      node_count: "{{ ((cluster_def.controlPlaneReplicas | default(0) | int) + (cluster_def.computeReplicas | default(0) | int)) | int }}"
+      has_first_ip: "{{ machine_network.firstIP is defined }}"
+      node_start_ip: "{{ machine_network.firstIP | default(omit) }}"
+      rendezvous_ip: "{{ cluster_def.rendezvousIP | default(omit) }}"
       node_ips: >-
         {% set ips = [] -%}
-        {% if node_config.start_ip is defined and (node_config.count | default(0) | int) > 0 -%}
-        {% for idx in range(node_config.count | default(0) | int) -%}
-        {% set _ = ips.append(node_config.start_ip | ansible.utils.ipmath(idx)) -%}
+        {% if has_first_ip and (node_count | int) > 0 -%}
+        {% for idx in range(node_count | int) -%}
+        {% set _ = ips.append(node_start_ip | ansible.utils.ipmath(idx)) -%}
         {% endfor -%}
         {% endif -%}
         {{ ips }}
+      inventory_vars: >-
+        {{ (cluster_def
+            | dict2items
+            | rejectattr('key', 'in', ['inventoryBaseDir', 'lbManaged'])
+            | items2dict)
+           | combine({'name': item.name}) }}
       expanded_cluster:
         name: "{{ item.name }}"
+        type: "{{ cluster_type }}"
         base_domain: "{{ cluster_base_domain }}"
         domain: "{{ cluster_domain }}"
-        network: "{{ item.network | default(omit) }}"
-        node_name_padding: "{{ item.node_name_padding | default(2) }}"
-        dhcp_static: "{{ item.dhcp_static | default(false) }}"
-        dhcp_lease_time: "{{ item.dhcp_lease_time | default('3d') }}"
-        dhcp_mac_prefix: "{{ item.dhcp_mac_prefix | default('00:50:56') }}"
-        bootstrap_ip: "{{ item.bootstrap_ip | default(omit) }}"
+        inventory_file: >-
+          {{ (cluster_def.inventoryBaseDir ~ '/' ~ item.name ~ '.yaml')
+             if (cluster_type == 'abi-vsphere' and cluster_def.inventoryBaseDir is defined)
+             else omit }}
+        network: "{{ machine_network.cidr | default(omit) }}"
+        node_name_padding: "{{ cluster_def.node_name_padding | default(2) }}"
+        dhcp_static: "{{ has_first_ip }}"
+        dhcp_lease_time: "{{ cluster_def.dhcp_lease_time | default('3d') }}"
+        dhcp_mac_prefix: "{{ cluster_def.dhcp_mac_prefix | default('00:50:56') }}"
+        bootstrap_ip: "{{ cluster_def.bootstrapIP | default(omit) }}"
+        rendezvous_ip: "{{ rendezvous_ip }}"
         nodes:
-          name_prefix: "{{ node_config.name_prefix | default('node') }}"
+          name_prefix: "{{ cluster_def.node_name_prefix | default('node') }}"
           ips: "{{ node_ips }}"
-        lb: "{{ item.lb | default({}) }}"
-  when: clusters is defined
+        lbManaged: "{{ cluster_def.lbManaged | default('cluster') }}"
+        apiVIP: "{{ cluster_def.apiVIP | default(omit) }}"
+        apiIntVIP: "{{ cluster_def.apiIntVIP | default(omit) }}"
+        ingressVIP: "{{ cluster_def.ingressVIP | default(omit) }}"
+        inventory_vars: "{{ inventory_vars if cluster_type == 'abi-vsphere' else omit }}"
+
+  - name: Write ABI inventory files for clusters
+    ansible.builtin.template:
+      src: ocp4_abi.inventory.yml.j2
+      dest: "{{ item.inventory_file }}"
+      mode: '0644'
+    loop: "{{ clusters_expanded | selectattr('inventory_file', 'defined') | list }}"
+    vars:
+      inventory_vars: "{{ item.inventory_vars }}"
+    delegate_to: localhost
+    run_once: true
+
+  when:
+  - clusters is defined
+  - clusters | length > 0
+

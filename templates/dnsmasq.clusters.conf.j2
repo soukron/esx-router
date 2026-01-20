@@ -3,27 +3,20 @@
 {% set padding = cluster.node_name_padding | default(2) %}
 {% set fmt = "%0" ~ padding ~ "d" %}
 
-# {{ cluster.domain }}
-{% if cluster.network is defined %}
-domain={{ cluster.domain }},{{ cluster.network }},local
-{% endif %}
-
 ######
 # DNS
 ######
 {% if cluster.bootstrap_ip is defined %}
 host-record=bootstrap.{{ cluster.domain }},{{ cluster.bootstrap_ip }}
 {% endif %}
+{% if cluster.dhcp_static | default(false) %}
 {% for ip in cluster.nodes.ips | default([]) %}
 host-record={{ cluster.nodes.name_prefix }}{{ fmt | format(loop.index0) }}.{{ cluster.domain }},{{ ip }}
 {% endfor %}
-{% if cluster.lb.api_vip is defined %}
-address=/api.{{ cluster.domain }}/{{ cluster.lb.api_vip }}
-address=/api-int.{{ cluster.domain }}/{{ cluster.lb.api_int_vip | default(cluster.lb.api_vip) }}
 {% endif %}
-{% if cluster.lb.managed | default('') == 'user' and cluster.lb.ingress_vip is defined %}
-address=/apps.{{ cluster.domain }}/{{ cluster.lb.ingress_vip }}
-{% endif %}
+address=/api.{{ cluster.domain }}/{{ cluster.apiVIP }}
+address=/api-int.{{ cluster.domain }}/{{ cluster.apiIntVIP | default(cluster.apiVIP) }}
+address=/apps.{{ cluster.domain }}/{{ cluster.ingressVIP }}
 
 {% if cluster.dhcp_static | default(false) %}
 #######
@@ -42,5 +35,4 @@ address=/apps.{{ cluster.domain }}/{{ cluster.lb.ingress_vip }}
 dhcp-host={{ mac_prefix }}:{{ mac_net }}:{{ mac_subnet }}:{{ mac_host }},{{ cluster.nodes.name_prefix }}{{ fmt | format(loop.index0) }}.{{ cluster.domain }},{{ ip }},{{ lease_time }}
 {% endfor %}
 {% endif %}
-
 {% endfor %}

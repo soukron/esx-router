@@ -23,6 +23,7 @@
   ansible.builtin.systemd:
     name: haproxy
     state: restarted
+  when: load_balancer_vips | default([]) | length > 0
 
 - name: Reload sysctl
   ansible.builtin.command: sysctl --system

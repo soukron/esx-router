@@ -32,6 +32,18 @@
     notify: Restart dnsmasq
     when: dnsmasq_mode == 'authoritative'
 
+  - name: Clear cluster dnsmasq entries when no clusters exist
+    ansible.builtin.copy:
+      content: ""
+      dest: /etc/dnsmasq.d/clusters.conf
+      owner: root
+      group: root
+      mode: '0644'
+    notify: Restart dnsmasq
+    when:
+    - dnsmasq_mode == 'authoritative'
+    - clusters_expanded is not defined or (clusters_expanded | length == 0)
+
   - name: Deploy cluster dnsmasq entries
     ansible.builtin.template:
       src: dnsmasq.clusters.conf.j2
@@ -43,6 +55,7 @@
     when:
     - dnsmasq_mode == 'authoritative'
     - clusters_expanded is defined
+    - clusters_expanded | length > 0
 
   - name: Enable and start dnsmasq
     ansible.builtin.systemd:

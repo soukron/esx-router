@@ -69,28 +69,76 @@ ansible-galaxy collection install -r collections/requirements.yml
 ## Cluster definitions
 
 Clusters are defined in `group_vars`/`host_vars` under `clusters`. The playbook derives DNS/DHCP
-entries and (when `lb.managed: user`) HAProxy VIPs.
+entries and (when `lbManaged: user`) HAProxy VIPs, and also writes the ABI inventory to
+`inventoryBaseDir/<cluster name>.yaml` when it's requested.
 
-Example:
+Examples:
 ```yaml
 clusters:
-  - name: ocp4
-    base_domain: gmbros.local
-    network: 10.11.0.0/24
-    bootstrap_ip: 10.11.0.99
-    dhcp_static: true
-    nodes:
-      count: 17
-      start_ip: 10.11.0.103
-      name_prefix: node
-    lb:
-      managed: user
-      api_vip: 10.11.0.101
-      ingress_vip: 10.11.0.100
+  - name: ocp4-simple-dynamic
+    type: simple
+    cluster_definition:
+      baseDomain: gmbros.local
+
+      controlPlaneReplicas: 3
+      computeReplicas: 2
+
+      machineNetwork:
+        cidr: 10.11.0.0/24
+
+      lbManaged: cluster
+      ingressVIP: 10.11.0.100
+      apiVIP: 10.11.0.101
+```
+
+```yaml
+clusters:
+  - name: ocp4-abi-vsphere-ha-dynamic
+    type: abi-vsphere
+    cluster_definition:
+      inventoryBaseDir: /home/sgarcia/src/ocp4-abi-vsphere-ansible/inventories
+      clusterBaseDir: ~/.local/ocp4/clusters
+
+      baseDomain: gmbros.local
+
+      controlPlaneReplicas: 3
+      computeReplicas: 2
+
+      networkType: OVNKubernetes
+      machineNetwork:
+        cidr: 10.11.0.0/24
+
+      rendezvousIP: 10.11.0.103
+
+      lbManaged: cluster
+      ingressVIP: 10.11.0.100
+      apiVIP: 10.11.0.101
+
+      vms:
+        controlPlaneData:
+          cluster: zone1
+          cpu: 4
+          memory: 16384
+          disk:
+          - 100
+          networks:
+          - name: ens192
+            network: VM Routed Network
+          datastore: esx1-datastore
+        computeData:
+          cluster: zone1
+          cpu: 4
+          memory: 8192
+          disk:
+          - 100
+          networks:
+          - name: ens192
+            network: VM Routed Network
+          datastore: esx1-datastore
 ```
 
 Notes:
-- If `lb.managed: cluster`, only DNS for `api`/`api-int` is created; no HAProxy.
+- If `lbManaged: cluster`, only DNS for `api`/`api-int` is created; no HAProxy.
 - The first 3 node IPs are used as API backends; ingress uses the remaining nodes (or the same 3
   if only 3 nodes exist).
 
