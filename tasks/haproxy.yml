@@ -67,166 +67,182 @@
   ansible.builtin.set_fact:
     load_balancer_enabled: "{{ load_balancer_vips | default([]) | length > 0 }}"
 
+- name: Build load balancer TCP ports list
+  ansible.builtin.set_fact:
+    load_balancer_tcp_ports: "{{ load_balancer_vips | map(attribute='ports') | list | flatten | unique | sort }}"
+
 - name: Reset interface addresses
   ansible.builtin.import_tasks: interface_cleanup.yml
   vars:
     interface_cleanup_interfaces: "{{ interfaces | default([]) }}"
   when: interfaces is defined
 
-- name: Install haproxy
-  ansible.builtin.package:
-    name: haproxy
-    state: present
-  when:
-  - not skip_package_install | default(false)
-
-- name: Ensure haproxy config directory exists
-  ansible.builtin.file:
-    path: /etc/haproxy/conf.d
-    state: directory
-    owner: root
-    group: root
-    mode: '0755'
-
-- name: Deploy haproxy base configuration
-  ansible.builtin.template:
-    src: haproxy.cfg.j2
-    dest: /etc/haproxy/haproxy.cfg
-    owner: root
-    group: root
-    mode: '0644'
-  notify: Restart haproxy
-
-- block:
-  - name: Clear haproxy cluster configuration when disabled
-    ansible.builtin.copy:
-      content: ""
-      dest: /etc/haproxy/conf.d/clusters.cfg
-      owner: root
-      group: root
-      mode: '0644'
-
-  - name: Stop haproxy service when disabled
+- block: # cleanup when setup_load_balancer is false
+  - name: Stop haproxy when setup_load_balancer is false
     ansible.builtin.systemd:
       name: haproxy
       state: stopped
       enabled: no
     ignore_errors: yes
+
+  - name: Remove haproxy package when setup_load_balancer is false
+    ansible.builtin.package:
+      name: haproxy
+      state: absent
+
+  - name: Remove haproxy configuration directory when setup_load_balancer is false
+    ansible.builtin.file:
+      path: /etc/haproxy
+      state: absent
   when:
-  - not load_balancer_enabled | default(false)
+  - not setup_load_balancer | default(false)
 
-- block:
-  - name: Build load balancer interface map from VIP subnets
-    ansible.builtin.set_fact:
-      load_balancer_vip_interface_map: >-
-        {% set iface_map = [] -%}
-        {% for iface in interfaces | default([]) -%}
-        {% set vips = [] -%}
-        {% for vip in load_balancer_vips | default([]) -%}
-        {% set vip_ip = (vip.vip | regex_replace('/\\d+$', '')) -%}
-        {% if (iface.address is defined) and (vip_ip | ansible.utils.ipaddr(iface.address)) -%}
-        {% set vip_cidr = vip.vip if (vip.vip | regex_search('/\\d+$')) else (vip_ip ~ '/32') -%}
-        {% set _ = vips.append(vip_cidr) -%}
-        {% endif -%}
-        {% endfor -%}
-        {% if vips | length > 0 -%}
-        {% set _ = iface_map.append({
-          'name': iface.name,
-          'desired_addresses': ([iface.address] + (vips | unique | list))
-        }) -%}
-        {% endif -%}
-        {% endfor -%}
-        {{ iface_map }}
-
-  - name: Fail when VIPs do not match any interface subnet
-    ansible.builtin.fail:
-      msg: "Could not map VIPs to any interface: {{ load_balancer_vips | map(attribute='vip') | list }}"
-    when: load_balancer_vip_interface_map | length == 0
-
-  - name: Collect configured IPv4 addresses for load balancer interface
-    ansible.builtin.command: "nmcli -g ipv4.addresses connection show {{ item.name }}"
-    loop: "{{ load_balancer_vip_interface_map }}"
-    register: lb_iface_addresses
-    changed_when: false
-    when: load_balancer_vip_interface_map | length > 0
-
-  - name: Ensure load balancer interface addresses match desired list
-    ansible.builtin.command: >-
-      nmcli connection modify {{ item.item.name }}
-      ipv4.addresses "{{ item.item.desired_addresses | join(',') }}"
-    vars:
-      existing_addresses: >-
-        {{ (item.stdout | default('')).split(',')
-           | map('trim')
-           | reject('equalto', '')
-           | list }}
-    when:
-    - (existing_addresses | sort) != (item.item.desired_addresses | sort)
-    loop: "{{ lb_iface_addresses.results | default([]) }}"
-    register: lb_vip_set_results
-    changed_when: lb_vip_set_results.rc == 0
-
-  - name: Collect device IPv4 addresses for load balancer interfaces
-    ansible.builtin.command: "nmcli -g IP4.ADDRESS device show {{ item.name }}"
-    loop: "{{ load_balancer_vip_interface_map }}"
-    register: lb_device_addresses
-    changed_when: false
-
-  - name: Reapply load balancer interfaces when device addresses differ
-    ansible.builtin.command: "nmcli device reapply {{ item.item.name }}"
-    vars:
-      device_addresses: >-
-        {{ (item.stdout | default('')).split('\n')
-           | map('trim')
-           | reject('equalto', '')
-           | list }}
-    when:
-    - (device_addresses | sort) != (item.item.desired_addresses | sort)
-    loop: "{{ lb_device_addresses.results | default([]) }}"
-    register: lb_reapply_result
-    failed_when: lb_reapply_result.rc not in [0, 10]
-    changed_when: lb_reapply_result.rc == 0
-
-  - name: Build load balancer TCP ports list
-    ansible.builtin.set_fact:
-      load_balancer_tcp_ports: "{{ load_balancer_vips | map(attribute='ports') | list | flatten | unique | sort }}"
-
-  - name: Allow load balancer ports in SELinux
-    community.general.seport:
-      ports: "{{ item }}"
-      proto: tcp
-      setype: http_port_t
+- block: # manage load balancer when setup_load_balancer is true
+  - name: Install haproxy
+    ansible.builtin.package:
+      name: haproxy
       state: present
-    loop: "{{ load_balancer_tcp_ports }}"
     when:
-    - ansible_selinux is defined
-    - ansible_selinux.status == "enabled"
-    - load_balancer_tcp_ports is defined
+    - not skip_package_install | default(false)
 
-  - name: Deploy haproxy cluster configuration
+  - name: Ensure haproxy config directory exists
+    ansible.builtin.file:
+      path: /etc/haproxy/conf.d
+      state: directory
+      owner: root
+      group: root
+      mode: '0755'
+
+  - name: Deploy haproxy base configuration
     ansible.builtin.template:
-      src: haproxy.clusters.cfg.j2
-      dest: /etc/haproxy/conf.d/clusters.cfg
+      src: haproxy.cfg.j2
+      dest: /etc/haproxy/haproxy.cfg
       owner: root
       group: root
       mode: '0644'
     notify: Restart haproxy
 
-  - name: Allow load balancer ports in public zone
-    ansible.posix.firewalld:
-      zone: public
-      port: "{{ item }}/tcp"
-      permanent: yes
-      state: enabled
-    loop: "{{ load_balancer_tcp_ports }}"
-    when:
-    - setup_firewalld | default(false)
-    - load_balancer_tcp_ports is defined
-    notify: Reload firewalld
+  - block: # cleanup when setup_load_balancer is true and no VIP matches this host
+    - name: Clear haproxy cluster configuration when setup_load_balancer is true but no VIP matches this host
+      ansible.builtin.file:
+        path: /etc/haproxy/conf.d/clusters.cfg
+        state: absent
 
-  - name: Enable and start haproxy
-    ansible.builtin.systemd:
-      name: haproxy
-      enabled: yes
-      state: started
-  when: load_balancer_enabled | default(false)
+    - name: Stop haproxy service when setup_load_balancer is true but no VIP matches this host
+      ansible.builtin.systemd:
+        name: haproxy
+        state: stopped
+        enabled: no
+      ignore_errors: yes
+    when:
+    - not load_balancer_enabled | default(false)
+
+  - block: # manage load balancer when setup_load_balancer is true and any VIP matches this host
+    - name: Build load balancer interface map from VIP subnets
+      ansible.builtin.set_fact:
+        load_balancer_vip_interface_map: >-
+          {% set iface_map = [] -%}
+          {% for iface in interfaces | default([]) -%}
+          {% set vips = [] -%}
+          {% for vip in load_balancer_vips | default([]) -%}
+          {% set vip_ip = (vip.vip | regex_replace('/\\d+$', '')) -%}
+          {% if (iface.address is defined) and (vip_ip | ansible.utils.ipaddr(iface.address)) -%}
+          {% set vip_cidr = vip.vip if (vip.vip | regex_search('/\\d+$')) else (vip_ip ~ '/32') -%}
+          {% set _ = vips.append(vip_cidr) -%}
+          {% endif -%}
+          {% endfor -%}
+          {% if vips | length > 0 -%}
+          {% set _ = iface_map.append({
+            'name': iface.name,
+            'desired_addresses': ([iface.address] + (vips | unique | list))
+          }) -%}
+          {% endif -%}
+          {% endfor -%}
+          {{ iface_map }}
+
+    - name: Collect configured IPv4 addresses for load balancer interface
+      ansible.builtin.command: "nmcli -g ipv4.addresses connection show {{ item.name }}"
+      loop: "{{ load_balancer_vip_interface_map }}"
+      register: lb_iface_addresses
+      changed_when: false
+      when: load_balancer_vip_interface_map | length > 0
+
+    - name: Ensure load balancer interface addresses match desired list
+      ansible.builtin.command: >-
+        nmcli connection modify {{ item.item.name }}
+        ipv4.addresses "{{ item.item.desired_addresses | join(',') }}"
+      vars:
+        existing_addresses: >-
+          {{ (item.stdout | default('')).split(',')
+            | map('trim')
+            | reject('equalto', '')
+            | list }}
+      when:
+      - (existing_addresses | sort) != (item.item.desired_addresses | sort)
+      loop: "{{ lb_iface_addresses.results | default([]) }}"
+      register: lb_vip_set_results
+      changed_when: lb_vip_set_results.rc == 0
+
+    - name: Collect device IPv4 addresses for load balancer interfaces
+      ansible.builtin.command: "nmcli -g IP4.ADDRESS device show {{ item.name }}"
+      loop: "{{ load_balancer_vip_interface_map }}"
+      register: lb_device_addresses
+      changed_when: false
+
+    - name: Reapply load balancer interfaces when device addresses differ
+      ansible.builtin.command: "nmcli device reapply {{ item.item.name }}"
+      vars:
+        device_addresses: >-
+          {{ (item.stdout | default('')).split('\n')
+            | map('trim')
+            | reject('equalto', '')
+            | list }}
+      when:
+      - (device_addresses | sort) != (item.item.desired_addresses | sort)
+      loop: "{{ lb_device_addresses.results | default([]) }}"
+      register: lb_reapply_result
+      failed_when: lb_reapply_result.rc not in [0, 10]
+      changed_when: lb_reapply_result.rc == 0
+
+    - name: Allow load balancer ports in SELinux
+      community.general.seport:
+        ports: "{{ item }}"
+        proto: tcp
+        setype: http_port_t
+        state: present
+      loop: "{{ load_balancer_tcp_ports }}"
+      when:
+      - ansible_selinux is defined
+      - ansible_selinux.status == "enabled"
+      - load_balancer_tcp_ports is defined
+
+    - name: Deploy haproxy cluster configuration
+      ansible.builtin.template:
+        src: haproxy.clusters.cfg.j2
+        dest: /etc/haproxy/conf.d/clusters.cfg
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Restart haproxy
+
+    - name: Allow load balancer ports in public zone
+      ansible.posix.firewalld:
+        zone: public
+        port: "{{ item }}/tcp"
+        permanent: yes
+        state: enabled
+      loop: "{{ load_balancer_tcp_ports }}"
+      when:
+      - setup_firewalld | default(false)
+      - load_balancer_tcp_ports is defined
+      notify: Reload firewalld
+
+    - name: Enable and start haproxy
+      ansible.builtin.systemd:
+        name: haproxy
+        enabled: yes
+        state: started
+    when:
+    - load_balancer_enabled | default(false)
+  when:
+  - setup_load_balancer | default(false)

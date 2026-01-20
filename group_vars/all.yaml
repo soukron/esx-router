@@ -26,7 +26,7 @@ dnsmasq_domain: gmbros.local
 dnsmasq_upstream_servers:
 - "10.0.0.1" 
 
-setup_load_balancer: true
+setup_load_balancer: true # enabled for all routers
 
 clusters: []
 

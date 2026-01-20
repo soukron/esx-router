@@ -3,9 +3,11 @@
 {% set padding = cluster.node_name_padding | default(2) %}
 {% set fmt = "%0" ~ padding ~ "d" %}
 
-######
+########################################################
+# {{ cluster.name }}
+########################################################
+
 # DNS
-######
 {% if cluster.bootstrap_ip is defined %}
 host-record=bootstrap.{{ cluster.domain }},{{ cluster.bootstrap_ip }}
 {% endif %}
@@ -19,9 +21,7 @@ address=/api-int.{{ cluster.domain }}/{{ cluster.apiIntVIP | default(cluster.api
 address=/apps.{{ cluster.domain }}/{{ cluster.ingressVIP }}
 
 {% if cluster.dhcp_static | default(false) %}
-#######
 # DHCP
-#######
 {% set mac_prefix = cluster.dhcp_mac_prefix | default('00:50:56') %}
 {% set lease_time = cluster.dhcp_lease_time | default('3d') %}
 {% for ip in cluster.nodes.ips | default([]) %}
