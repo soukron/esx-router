@@ -1,6 +1,25 @@
 ---
 
 clusters:
+# Example: simple with static IP (DHCP leases are also created) and user managed VIPs
+- name: ocp4-simple-static
+  type: simple
+  cluster_definition:
+    baseDomain: gmbros.local
+
+    controlPlaneReplicas: 3
+    computeReplicas: 2
+
+    machineNetwork:
+      cidr: 10.11.0.0/24
+      firstIP: 10.11.0.103
+
+    bootstrapIP: 10.11.0.99
+
+    lbManaged: user
+    ingressVIP: 10.11.0.100
+    apiVIP: 10.11.0.101
+
 # Example: simple with dynamic DHCP (no lease) and cluster managed VIPs
 - name: ocp4-simple-dynamic
   type: simple
@@ -14,10 +33,10 @@ clusters:
       cidr: 10.11.0.0/24
 
     lbManaged: cluster
-    ingressVIP: 10.11.0.100
-    apiVIP: 10.11.0.101
+    ingressVIP: 10.11.0.200
+    apiVIP: 10.11.0.201
 
-# Example: abi-vsphere with static IP/DHCP (with lease) and user managed VIPs
+# Example: abi-vsphere with static IP (DHCP leases are also created) and cluster managed VIPs
 - name: ocp4-abi-vsphere-static
   type: abi-vsphere
   cluster_definition:
@@ -44,17 +63,7 @@ clusters:
     lbManaged: cluster
 
     vms:
-      controlPlaneData:
-        cluster: zone3
-        cpu: 4
-        memory: 16384
-        disk:
-        - 100
-        networks:
-        - name: ens192
-          network: VM Routed Network
-        datastore: esx3-datastore
-      computeData:
+      defaultConfig:
         cluster: zone3
         cpu: 4
         memory: 8192
@@ -64,9 +73,12 @@ clusters:
         - name: ens192
           network: VM Routed Network
         datastore: esx3-datastore
+      controlPlaneConfig:
+        memory: 16384
+      computeConfig: {}
 
 # Example: abi-vsphere with dynamic DHCP (fixed for rendezvous node) and cluster managed VIPs
-- name: ocp4-abi-vsphere-ha-dynamic
+- name: ocp4-abi-vsphere-dynamic
   type: abi-vsphere
   cluster_definition:
     inventoryBaseDir: /home/sgarcia/src/ocp4-abi-vsphere-ansible/inventories
@@ -88,17 +100,7 @@ clusters:
     apiVIP: 10.11.0.201
 
     vms:
-      controlPlaneData:
-        cluster: zone1
-        cpu: 4
-        memory: 16384
-        disk:
-        - 100
-        networks:
-        - name: ens192
-          network: VM Routed Network
-        datastore: esx1-datastore
-      computeData:
+      defaultConfig:
         cluster: zone1
         cpu: 4
         memory: 8192
@@ -108,10 +110,13 @@ clusters:
         - name: ens192
           network: VM Routed Network
         datastore: esx1-datastore
+      controlPlaneConfig:
+        memory: 16384
+      computeConfig: {}
 
     templateOverrides:
       vms:
-        node00.ocp4-abi-vsphere-ha-dynamic.gmbros.local:
+        node00:
           interfaces:
           - name: ens192
             ipv4:
