@@ -24,6 +24,16 @@ address=/apps.{{ cluster.domain }}/{{ cluster.ingressVIP }}
 # DHCP
 {% set mac_prefix = cluster.dhcp_mac_prefix | default('00:50:56') %}
 {% set lease_time = cluster.dhcp_lease_time | default('3d') %}
+{% if cluster.bootstrap_ip is defined %}
+{% set octets = cluster.bootstrap_ip.split('.') %}
+{% set net_octet = octets[1] | int %}
+{% set subnet_octet = octets[2] | int %}
+{% set host_octet = octets[3] | int %}
+{% set mac_net = "%02x" | format(net_octet) %}
+{% set mac_subnet = "%02x" | format(subnet_octet) %}
+{% set mac_host = "%02x" | format(host_octet) %}
+dhcp-host={{ mac_prefix }}:{{ mac_net }}:{{ mac_subnet }}:{{ mac_host }},bootstrap.{{ cluster.domain }},{{ cluster.bootstrap_ip }},{{ lease_time }}
+{% endif %}
 {% for ip in cluster.nodes.ips | default([]) %}
 {% set octets = ip.split('.') %}
 {% set net_octet = octets[1] | int %}

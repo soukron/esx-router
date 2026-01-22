@@ -98,6 +98,7 @@
       inventory_vars: "{{ item.inventory_vars }}"
     delegate_to: localhost
     run_once: true
+    when: not clusters_summary_only | default(false)
 
   when:
   - clusters is defined

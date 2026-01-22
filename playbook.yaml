@@ -42,5 +42,12 @@
     tags:
     - dhcrelay
 
+  - ansible.builtin.import_tasks: tasks/summary.yml
+    tags:
+    - clusters
+    - dnsmasq
+    - haproxy
+    - summary
+
   handlers:
   - ansible.builtin.import_tasks: handlers/main.yml

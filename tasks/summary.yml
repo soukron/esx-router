@@ -1,0 +1,127 @@
+---
+- name: Load and expand clusters for summary
+  ansible.builtin.include_tasks: tasks/clusters.yml
+  vars:
+    clusters_summary_only: true
+  when: clusters_expanded is not defined
+  run_once: true
+
+- name: Build cluster summary
+  ansible.builtin.set_fact:
+    clusters_summary: |-
+      {% set expanded = clusters_expanded | default([]) -%}
+      {% if expanded | length == 0 -%}
+      No clusters defined.
+      {% else -%}
+      {% for cluster in expanded -%}
+      Cluster: {{ cluster.name }} ({{ cluster.type }})
+        Domain: {{ cluster.domain }}
+        LB:
+          managedBy={{ cluster.lbManaged | default('cluster') }}
+          apiVIP={{ cluster.apiVIP | default('n/a') }}
+          apiIntVIP={{ cluster.apiIntVIP | default(cluster.apiVIP | default('n/a')) }}
+          ingressVIP={{ cluster.ingressVIP | default('n/a') }}
+      {% if cluster.bootstrap_ip is defined %}
+        Bootstrap IP: {{ cluster.bootstrap_ip }}
+      {% endif -%}
+      {% if cluster.rendezvous_ip is defined %}
+        Rendezvous IP: {{ cluster.rendezvous_ip }}
+      {% endif %}
+        DHCP static: {{ 'yes' if (cluster.dhcp_static | default(false)) else 'no' }}
+      {% set base_indent = "  " %}
+      {% set node_indent = base_indent ~ "" %}
+      {% set node_count = (cluster.nodes.ips | default([])) | length %}
+      {% if node_count > 0 %}
+      {{ base_indent }}Nodes: {{ node_count }}
+      {{ base_indent }}Nodes details:
+      {% set padding = cluster.node_name_padding | default(2) -%}
+      {% set fmt = "%0" ~ padding ~ "d" -%}
+      {% if cluster.dhcp_static | default(false) -%}
+      {% set mac_prefix = cluster.dhcp_mac_prefix | default('00:50:56') -%}
+      {% for ip in cluster.nodes.ips | default([]) -%}
+      {% set octets = ip.split('.') -%}
+      {% set mac_net = "%02x" | format(octets[1] | int) -%}
+      {% set mac_subnet = "%02x" | format(octets[2] | int) -%}
+      {% set mac_host = "%02x" | format(octets[3] | int) -%}
+      {{ node_indent }}- {{ cluster.nodes.name_prefix }}{{ fmt | format(loop.index0) }}.{{ cluster.domain }},{{ ip }},{{ mac_prefix }}:{{ mac_net }}:{{ mac_subnet }}:{{ mac_host }}
+      {% endfor -%}
+      {% else -%}
+      {{ node_indent }}- DHCP dynamic (no reservations)
+      {% endif -%}
+      {% endif %}
+      {% if not loop.last %}
+
+      {% endif -%}
+      {% endfor -%}
+      {% endif -%}
+  run_once: true
+
+- name: Clear local output directory
+  ansible.builtin.file:
+    path: "{{ playbook_dir }}/output"
+    state: absent
+  delegate_to: localhost
+  run_once: true
+
+- name: Ensure local output directory exists
+  ansible.builtin.file:
+    path: "{{ playbook_dir }}/output"
+    state: directory
+    mode: '0755'
+  delegate_to: localhost
+  run_once: true
+
+- name: Write local summary file
+  ansible.builtin.copy:
+    content: "{{ clusters_summary }}\n"
+    dest: "{{ playbook_dir }}/output/summary.txt"
+    mode: '0644'
+  delegate_to: localhost
+  run_once: true
+
+- name: Check dnsmasq clusters.conf on authoritative router
+  ansible.builtin.stat:
+    path: /etc/dnsmasq.d/clusters.conf
+  delegate_to: esx1-router
+  run_once: true
+  register: dnsmasq_clusters_conf_stat
+  when: "'esx1-router' in ansible_play_hosts"
+
+- name: Slurp clusters.conf from authoritative router
+  ansible.builtin.slurp:
+    path: /etc/dnsmasq.d/clusters.conf
+  delegate_to: esx1-router
+  run_once: true
+  register: dnsmasq_clusters_conf_content
+  when:
+  - "'esx1-router' in ansible_play_hosts"
+  - dnsmasq_clusters_conf_stat.stat.exists | default(false)
+
+- name: Slurp clusters.cfg from each router
+  ansible.builtin.slurp:
+    path: /etc/haproxy/conf.d/clusters.cfg
+  delegate_to: "{{ item }}"
+  register: haproxy_clusters_cfg_contents
+  run_once: true
+  failed_when: false
+  loop: "{{ ansible_play_hosts }}"
+
+- name: Write local clusters.conf from authoritative router
+  ansible.builtin.copy:
+    content: "{{ (dnsmasq_clusters_conf_content.content | b64decode).rstrip() if (dnsmasq_clusters_conf_content is defined) else '' }}\n"
+    dest: "{{ playbook_dir }}/output/esx1-router.clusters.conf"
+    mode: '0644'
+  delegate_to: localhost
+  run_once: true
+  when:
+  - "'esx1-router' in ansible_play_hosts"
+  - dnsmasq_clusters_conf_stat.stat.exists | default(false)
+
+- name: Write local clusters.cfg per router
+  ansible.builtin.copy:
+    content: "{{ (item.content | b64decode).rstrip() if (item is defined and item.content is defined) else '' }}\n"
+    dest: "{{ playbook_dir }}/output/{{ item.item }}.clusters.cfg"
+    mode: '0644'
+  delegate_to: localhost
+  run_once: true
+  loop: "{{ haproxy_clusters_cfg_contents.results | default([]) }}"
