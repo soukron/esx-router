@@ -57,6 +57,12 @@
         {% endfor -%}
         {% endif -%}
         {{ ips }}
+      reserved_nodes: >-
+        {% set entries = [] -%}
+        {% if cluster_def.bootstrapIP is defined -%}
+        {% set _ = entries.append({'name': 'bootstrap', 'ip': cluster_def.bootstrapIP}) -%}
+        {% endif -%}
+        {{ entries }}
       inventory_vars: >-
         {{ (cluster_def
             | dict2items
@@ -82,6 +88,7 @@
         nodes:
           name_prefix: "{{ cluster_def.node_name_prefix | default('node') }}"
           ips: "{{ node_ips }}"
+          reserved: "{{ reserved_nodes }}"
         lbManaged: "{{ cluster_def.lbManaged | default('cluster') }}"
         apiVIP: "{{ cluster_def.apiVIP | default(omit) }}"
         apiIntVIP: "{{ cluster_def.apiIntVIP | default(omit) }}"

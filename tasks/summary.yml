@@ -38,12 +38,19 @@
       {% set fmt = "%0" ~ padding ~ "d" -%}
       {% if cluster.dhcp_static | default(false) -%}
       {% set mac_prefix = cluster.dhcp_mac_prefix | default('00:50:56') -%}
+      {% set entries = [] -%}
+      {% for entry in cluster.nodes.reserved | default([]) -%}
+      {% set _ = entries.append({'hostname': entry.name ~ '.' ~ cluster.domain, 'ip': entry.ip}) -%}
+      {% endfor -%}
       {% for ip in cluster.nodes.ips | default([]) -%}
-      {% set octets = ip.split('.') -%}
+      {% set _ = entries.append({'hostname': cluster.nodes.name_prefix ~ (fmt | format(loop.index0)) ~ '.' ~ cluster.domain, 'ip': ip}) -%}
+      {% endfor -%}
+      {% for entry in entries -%}
+      {% set octets = entry.ip.split('.') -%}
       {% set mac_net = "%02x" | format(octets[1] | int) -%}
       {% set mac_subnet = "%02x" | format(octets[2] | int) -%}
       {% set mac_host = "%02x" | format(octets[3] | int) -%}
-      {{ node_indent }}- {{ cluster.nodes.name_prefix }}{{ fmt | format(loop.index0) }}.{{ cluster.domain }},{{ ip }},{{ mac_prefix }}:{{ mac_net }}:{{ mac_subnet }}:{{ mac_host }}
+      {{ node_indent }}- {{ entry.hostname }},{{ entry.ip }},{{ mac_prefix }}:{{ mac_net }}:{{ mac_subnet }}:{{ mac_host }}
       {% endfor -%}
       {% else -%}
       {{ node_indent }}- DHCP dynamic (no reservations)
